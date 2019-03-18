@@ -16,9 +16,9 @@ SPEC_ROOT = Pathname(__FILE__).dirname
 Dir[SPEC_ROOT.join('support/*.rb').to_s].each { |f| require f }
 Dir[SPEC_ROOT.join('shared/*.rb').to_s].each { |f| require f }
 
-require 'dry/system/container'
-require 'dry/system/stubs'
-require 'dry/events'
+# require 'dry/system/container'
+# require 'dry/system/stubs'
+# require 'dry/events'
 
 module TestNamespace
   def remove_constants
@@ -28,12 +28,9 @@ module TestNamespace
   end
 end
 
-# for specs that rely on `settings` DSL
-module Types
-  include Dry::Types.module
-end
-
 RSpec.configure do |config|
+  config.alias_example_to :demonstrate
+
   config.disable_monkey_patching!
 
   config.before do
@@ -50,6 +47,8 @@ RSpec.configure do |config|
     Object.send(:remove_const, :Test)
     Object.send(:remove_const, :Namespaced) if defined? Namespaced
 
-    Dry::System.providers.items.delete_if { |p| p.identifier != :system }
+    if Dry.const_defined?(:Booter)
+      Dry::Booter.registry.clear
+    end
   end
 end

@@ -11,7 +11,7 @@ module Dry
 
       def self.call(file_name)
         {}.tap do |options|
-          File.foreach(file_name) do |line|
+          ::File.foreach(file_name) do |line|
             break unless line =~ VALID_LINE_RE
 
             if (comment = line.match(COMMENT_RE))

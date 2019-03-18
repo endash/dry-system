@@ -1,1 +1,1 @@
-require 'dry/system'
+require 'dry/system/container'

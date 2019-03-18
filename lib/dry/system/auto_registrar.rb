@@ -1,89 +1,39 @@
-require 'dry/system/constants'
-require 'dry/system/magic_comments_parser'
-require 'dry/system/auto_registrar/configuration'
-
 module Dry
   module System
-    # Default auto-registration implementation
-    #
-    # This is currently configured by default for every System::Container.
-    # Auto-registrar objects are responsible for loading files from configured
-    # auto-register paths and registering components automatically within the
-    # container.
-    #
-    # @api private
     class AutoRegistrar
-      attr_reader :container
+      PATH_SEPARATOR = '/'
 
-      attr_reader :config
+      attr_reader :loader, :default_namespace, :namespace_separator
 
-      def initialize(container)
-        @container = container
-        @config = container.config
+      def initialize(loader:, default_namespace:, namespace_separator: '.')
+        @loader = loader
+        @default_namespace = default_namespace
+        @namespace_separator = namespace_separator
       end
 
-      # @api private
-      def finalize!
-        Array(config.auto_register).each { |dir| call(dir) }
-      end
+      def call(container, *args)
+        loader.call(*args).map do |file|
+          key = key_for(file.name)
 
-      # @api private
-      def call(dir)
-        registration_config = Configuration.new
-        yield(registration_config) if block_given?
-        components(dir).each do |component|
-          next if !component.auto_register? || registration_config.exclude.(component)
+          next if container.key?(key)
+          next if file[:auto_register] == false
 
-          container.require_component(component) do
-            register(component.identifier, memoize: registration_config.memoize) { registration_config.instance.(component) }
+          file.call do |instance|
+            container.register(key, memoize: file[:memoize]) do
+              block_given? ? yield(instance) : instance.call
+            end
           end
         end
       end
 
-      private
+      def key_for(name)
+        key = name.split(PATH_SEPARATOR).map(&:to_sym)
 
-      # @api private
-      def components(dir)
-        files(dir).
-          map { |file_name| [file_name, file_options(file_name)] }.
-          map { |(file_name, options)| component(relative_path(dir, file_name), **options) }.
-          reject { |component| key?(component.identifier) }
-      end
+        if default_namespace && key.first(default_namespace.size) == default_namespace
+          key = key.drop(default_namespace.size)
+        end
 
-      # @api private
-      def files(dir)
-        Dir["#{root}/#{dir}/**/#{RB_GLOB}"]
-      end
-
-      # @api private
-      def relative_path(dir, file_path)
-        dir_root = root.join(dir.to_s.split('/')[0])
-        file_path.to_s.sub("#{dir_root}/", '').sub(RB_EXT, EMPTY_STRING)
-      end
-
-      # @api private
-      def file_options(file_name)
-        MagicCommentsParser.(file_name)
-      end
-
-      # @api private
-      def component(path, options)
-        container.component(path, options)
-      end
-
-      # @api private
-      def root
-        container.root
-      end
-
-      # @api private
-      def key?(name)
-        container.key?(name)
-      end
-
-      # @api private
-      def register(*args, &block)
-        container.register(*args, &block)
+        key.join(namespace_separator)
       end
     end
   end

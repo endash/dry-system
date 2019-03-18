@@ -1,73 +1,57 @@
+require 'pathname'
+require 'rake/file_list'
 require 'dry/inflector'
+
+require 'dry/system/loader/file'
+require 'dry/system/loader/require'
+require 'dry/system/loader/instance'
+require 'dry/system/magic_comments_parser'
 
 module Dry
   module System
-    # Default component loader implementation
-    #
-    # This class is configured by default for every System::Container. You can
-    # provide your own and use it in your containers too.
-    #
-    # @example
-    #   class MyLoader < Dry::System::Loader
-    #     def call(*args)
-    #       constant.build(*args)
-    #     end
-    #   end
-    #
-    #   class MyApp < Dry::System::Container
-    #     configure do |config|
-    #       # ...
-    #       config.loader MyLoader
-    #     end
-    #   end
-    #
-    # @api public
     class Loader
-      # @!attribute [r] path
-      #   @return [String] Path to component's file
-      attr_reader :path
+      extend Dry::Configurable
 
-      # @!attribute [r] inflector
-      #   @return [Object] Inflector backend
-      attr_reader :inflector
+      setting :root, Object
+      setting :require_strategy, Require
+      setting :instance_factory, Instance
+      setting :inflector, Dry::Inflector.new
 
-      # @api private
-      def initialize(path, inflector = Dry::Inflector.new)
-        @path = path
-        @inflector = inflector
+      def config
+        self.class.config
       end
 
-      # Returns component's instance
-      #
-      # Provided optional args are passed to object's constructor
-      #
-      # @param [Array] args Optional constructor args
-      #
-      # @return [Object]
-      #
-      # @api public
-      def call(*args)
-        if singleton?(constant)
-          constant.instance(*args)
-        else
-          constant.new(*args)
+      def instance_factory
+        @instance_factory ||= config.instance_factory.new(config.inflector, root: config.root)
+      end
+
+      def call(base_dir, file_or_pattern = '**/*.rb', except: nil, **options)
+        base_dir = Pathname.new(base_dir)
+
+        files = Rake::FileList.new(base_dir.join(file_or_pattern)).exclude(*Array(except))
+
+        Array(files).map do |file|
+          file = Pathname.new(file)
+          file = file.relative_path_from(base_dir) rescue file
+          self.for(base_dir, file, options)
         end
       end
 
-      # Return component's class constant
-      #
-      # @return [Class]
-      #
-      # @api public
-      def constant
-        inflector.constantize(inflector.camelize(path))
+      def call!(*args)
+        call(*args).map do |file|
+          next if file[:auto_load] == false
+          file.call
+        end
       end
 
-      private
+      def for(base_dir, file = nil, options)
+        options = MagicCommentsParser.call(base_dir.join(file)).merge(options)
 
-      # @api private
-      def singleton?(constant)
-        constant.respond_to?(:instance) && !constant.respond_to?(:new)
+        File.new(
+          base_dir, file, options,
+          require_strategy: config.require_strategy,
+          instance_factory: instance_factory
+        )
       end
     end
   end
